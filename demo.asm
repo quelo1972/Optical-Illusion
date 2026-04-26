@@ -66,6 +66,8 @@ start:
     lda #$01
     sta flashColor
     lda #$00
+    sta flashColorInv
+    lda #$00
     sta phase
 
     ; Preparazione della scena
@@ -90,11 +92,25 @@ main_loop:
     lda flash_table,x       ; Legge il colore corrente dalla tabella
     sta flashColor
     inx
-    cpx #FLASH_LEN
+    cpx #FLASH_LEN 
     bne store_phase
     ldx #$00                ; Ricomincia il ciclo
 store_phase:
     stx phase
+
+    ; Calcola il colore inverso (speculare) per la linea spezzata
+    ; Spostiamo l'indice di 3 posizioni nel ciclo da 6 (FLASH_LEN)
+    txa
+    clc
+    adc #$03
+    cmp #FLASH_LEN
+    bcc no_wrap_inv
+    sbc #FLASH_LEN
+no_wrap_inv:
+    tax
+    lda flash_table,x
+    sta flashColorInv
+    ldx phase               ; Ripristina X per coerenza
 
     ; Aggiorna i colori degli elementi a video
     jsr paint_gray_area
@@ -145,6 +161,29 @@ full_block:
     cpx #$08
     bne full_block
 
+    ; Caratteri custom per la linea spezzata
+    ldx #$00
+line_chars:
+    lda #$00                 
+    sta CHARSET_RAM + $010,x ; Char 2: Vuoto (tranne fondo)
+    lda #$01                 ; Bit 0: pixel all'estrema destra
+    sta CHARSET_RAM + $018,x ; Char 3: Linea Verticale
+    lda #$00                 ; Char 4: rimosso eccesso verticale superiore
+    sta CHARSET_RAM + $020,x 
+    lda #$01                 ; Char 6: parte verticale della giunzione
+    sta CHARSET_RAM + $030,x
+    lda #$80                 ; Bit 7: pixel all'estrema sinistra
+    sta CHARSET_RAM + $028,x ; Char 5: Linea Verticale (Sinistra cella)
+    inx
+    cpx #$08
+    bne line_chars
+    ; Aggiunge la linea orizzontale sul fondo dei caratteri 2 e 4
+    lda #$ff
+    sta CHARSET_RAM + $017   ; Char 2: linea orizzontale
+    lda #$01                 ; Char 4: solo il bit verticale (no flash orizzontale)
+    sta CHARSET_RAM + $027   
+    lda #$01                 ; Char 6: solo il bit verticale (no flash orizzontale)
+    sta CHARSET_RAM + $037
     rts
 
 ; Pulisce la memoria dello schermo e resetta i colori (RAM Colore)
@@ -182,26 +221,77 @@ color_last:
     rts
 
 draw_scene:
-    ; Disegna l'area rettangolare centrale utilizzando il carattere 1 (blocco pieno).
-    ; Le coordinate sono centrate rispetto allo schermo 40x25.
     ldx #$00
-row_chars:
+row_loop_main:
     lda screen_row_lo,x
     sta ptr
     lda screen_row_hi,x
     sta ptr+1
+    
+    lda stair_start_x,x
+    cmp #$ff
+    beq next_row_draw_final
 
-    ldy #$00
-col_chars:
+    ; 1. Disegna i blocchi della scala (Char 1)
+    lda #15                ; Il poligono si chiude verticalmente alla colonna 15
+    sta rightStartTmp
+    ldy stair_start_x,x
+draw_blocks:
     lda #$01
     sta (ptr),y
     iny
-    cpy #$1a               ; Larghezza di 26 colonne
-    bne col_chars
+    cpy rightStartTmp
+    bne draw_blocks
 
+    ; 2. Linea Verticale di chiusura a destra (Char 5 - Linea a sinistra della cella)
+    lda #$05
+    sta (ptr),y
+    iny
+
+    ; 3. Pulizia area a destra (Caratteri grigio chiaro / vuoti)
+    lda #$00
+clean_right:
+    sta (ptr),y
+    iny
+    cpy #40
+    bne clean_right
+
+    ; 2. Linea Verticale (Char 3): solo sul lato sinistro esterno
+    ldy stair_start_x,x
+    dey
+    lda #$03
+    sta (ptr),y
+
+    ; 3. Profilo Superiore: solo sulla prima riga di ogni gradino (riga pari)
+    txa
+    and #$01
+    bne next_row_draw_final
+    
+    ; Disegna sulla riga precedente (sopra lo scalino)
+    ldy stair_start_x,x
+    dey
+    lda screen_row_lo-1,x  ; Prende il puntatore della riga sopra
+    sta ptr+2
+    lda screen_row_hi-1,x
+    sta ptr+3
+    
+    lda #$04               ; Angolo esterno
+    cpx #14                ; Se è l'ultimo scalino in basso (indice riga 14)
+    bne store_corner       ; evita di disegnare l'angolo che eccede
+    lda #$00               ; Sostituisci con spazio vuoto per tagliare l'eccesso
+store_corner:
+    sta (ptr+2),y
+    iny
+    lda #$02               ; Linea orizzontale superiore
+    sta (ptr+2),y
+    iny
+    lda #$06               ; Carattere di giunzione (Orizzontale + Verticale da sopra)
+    sta (ptr+2),y
+
+next_row_draw_final:
     inx
-    cpx #$10               ; 16 rows
-    bne row_chars
+    cpx #$10
+    bne row_loop_main
 
     ; Initial light gray fill
     lda #$0f
@@ -226,7 +316,7 @@ full_seg:
     lda currentGray
     sta (ptr),y
     iny
-    cpy #$1a
+    cpy #40                ; Esteso a tutto lo schermo
     bne full_seg
 
 next_row:
@@ -234,31 +324,43 @@ next_row:
     cpx #$10
     bne row_loop
     rts
-
-; Colora i tasselli della scala applicando il ciclo di luminanza
+    
 paint_staircase_color:
     ldx #$00
 stair_rows:
-    lda color_row_lo,x
+    lda screen_row_lo,x    ; Usiamo screen_row per identificare i caratteri
     sta ptr
-    lda color_row_hi,x
+    lda screen_row_hi,x
     sta ptr+1
+    
+    lda color_row_lo,x
+    sta ptr+2              ; ptr+2/3 per la RAM colore
+    lda color_row_hi,x
+    sta ptr+3
 
-    ; Legge dove inizia la scala orizzontalmente per questa riga specifica
-    lda stair_start_x,x 
-    cmp #$ff               ; Se $ff, la riga non contiene parti della scala
-    beq stair_next_row
-    sta rightStartTmp
+    cpx #$01               ; Riga del profilo superiore dell'ultimo scalino in alto
+    beq stair_next_row     ; Salta il ricoloramento (rimane grigio chiaro statico)
 
-    ; Applica il colore dinamico (flashColor) solo alla porzione della scala.
-    ; L'illusione di movimento nasce dalla differenza di luminanza tra
-    ; questo colore e quello dello sfondo (currentGray).
-    ldy rightStartTmp
+    ldy #$00
 stair_cols:
-    lda flashColor
-    sta (ptr),y
+    lda (ptr),y            ; Legge il carattere a video
+    cmp #$01               ; Blocco pieno?
+    bne check_custom
+    lda flashColor         ; Colore scala normale
+    sta (ptr+2),y
+    jmp next_stair_col
+check_custom:
+    cmp #$05               ; Carattere 5 (piombo destra) - statico
+    beq next_stair_col
+    cmp #$02               ; Carattere 2 (orizzontale superiore) - statico
+    beq next_stair_col
+    cmp #$03               ; Flash solo per 3 (verticale) e 4 (angolo/punta)
+    bcc next_stair_col
+    lda flashColorInv      ; Colore flash inverso
+    sta (ptr+2),y
+next_stair_col:
     iny
-    cpy #$0f               ; Limite destro della scala
+    cpy #40                ; Esteso a tutto lo schermo
     bne stair_cols
 
 stair_next_row:
@@ -329,6 +431,9 @@ currentGray:
 .byte $0f
 
 rightStartTmp:
+.byte $00
+
+flashColorInv:
 .byte $00
 
 flashColor:
