@@ -82,7 +82,7 @@ main_loop:
     ; Divisore di frame per rallentare l'animazione (aggiornamento ogni 2 frame)
     inc frameDivider
     lda frameDivider
-    cmp #$06
+    cmp #$06                ; Rallentato per rendere l'illusione più fluida
     bcc no_visual_update
     lda #$00
     sta frameDivider
@@ -99,10 +99,10 @@ store_phase:
     stx phase
 
     ; Calcola il colore inverso (speculare) per la linea spezzata
-    ; Spostiamo l'indice di 3 posizioni nel ciclo da 6 (FLASH_LEN)
+    ; Spostiamo l'indice di 2 posizioni nel ciclo da 4 (FLASH_LEN)
     txa
     clc
-    adc #$03
+    adc #$02
     cmp #FLASH_LEN
     bcc no_wrap_inv
     sbc #FLASH_LEN
@@ -180,9 +180,9 @@ line_chars:
     ; Aggiunge la linea orizzontale sul fondo dei caratteri 2 e 4
     lda #$ff
     sta CHARSET_RAM + $017   ; Char 2: linea orizzontale
-    lda #$01                 ; Char 4: solo il bit verticale (no flash orizzontale)
+    lda #$01                 ; Char 4: solo il pixel d'angolo (taglio eccedenza sinistra)
     sta CHARSET_RAM + $027   
-    lda #$01                 ; Char 6: solo il bit verticale (no flash orizzontale)
+    lda #$ff                 ; Char 6: completa la giunzione con l'orizzontale
     sta CHARSET_RAM + $037
     rts
 
@@ -286,6 +286,10 @@ store_corner:
     sta (ptr+2),y
     iny
     lda #$06               ; Carattere di giunzione (Orizzontale + Verticale da sopra)
+    cpx #$02               ; È il primo scalino in alto?
+    bne store_junction
+    lda #$02               ; Estendi la linea orizzontale senza il pezzetto verticale
+store_junction:
     sta (ptr+2),y
 
 next_row_draw_final:
@@ -338,24 +342,20 @@ stair_rows:
     lda color_row_hi,x
     sta ptr+3
 
-    cpx #$01               ; Riga del profilo superiore dell'ultimo scalino in alto
-    beq stair_next_row     ; Salta il ricoloramento (rimane grigio chiaro statico)
-
     ldy #$00
 stair_cols:
     lda (ptr),y            ; Legge il carattere a video
+    beq next_stair_col     ; Salta se è lo sfondo (Char 0) per non farlo lampeggiare
     cmp #$01               ; Blocco pieno?
     bne check_custom
     lda flashColor         ; Colore scala normale
     sta (ptr+2),y
     jmp next_stair_col
 check_custom:
-    cmp #$05               ; Carattere 5 (piombo destra) - statico
-    beq next_stair_col
-    cmp #$02               ; Carattere 2 (orizzontale superiore) - statico
-    beq next_stair_col
-    cmp #$03               ; Flash solo per 3 (verticale) e 4 (angolo/punta)
-    bcc next_stair_col
+    cmp #$05               ; Il Carattere 5 (chiusura a piombo) resta statico
+    beq next_stair_col     ; per dare solidità al lato destro
+    ; Tutti gli altri caratteri custom (2, 3, 4, 6) ora partecipano
+    ; al flash inverso per creare un profilo continuo e coerente.
     lda flashColorInv      ; Colore flash inverso
     sta (ptr+2),y
 next_stair_col:
@@ -442,15 +442,12 @@ flashColor:
 frameDivider: .byte $00
 
 ; Tabella dei colori per l'illusione: crea una sequenza di luminanza
-; Andata: Bianco -> Grigio Chiaro -> Grigio Scuro -> Nero
-; Ritorno: Grigio Scuro -> Grigio Chiaro
+; Pattern ottimizzato dal video: Bianco -> Grigio Sfondo -> Nero -> Grigio Sfondo
 flash_table:
 .byte $01                       ; Bianco
-.byte $0f                       ; Grigio Chiaro
-.byte $0c                       ; Grigio Scuro
+.byte $0f                       ; Grigio Chiaro (Sfondo)
 .byte $00                       ; Nero
-.byte $0c                       ; Ritorno: Grigio Scuro
-.byte $0f                       ; Ritorno: Grigio Chiaro
+.byte $0f                       ; Grigio Chiaro (Sfondo)
 FLASH_LEN = * - flash_table
 
 ; Tabelle di puntatori per le righe dello schermo (offset per centrare la scena)
