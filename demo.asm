@@ -80,7 +80,7 @@ main_loop:
     ; Divisore di frame per rallentare l'animazione (aggiornamento ogni 2 frame)
     inc frameDivider
     lda frameDivider
-    cmp #$02
+    cmp #$06
     bcc no_visual_update
     lda #$00
     sta frameDivider
@@ -337,9 +337,15 @@ flashColor:
 frameDivider: .byte $00
 
 ; Tabella dei colori per l'illusione: crea una sequenza di luminanza
-; Bianco -> Grigio Chiaro -> Grigio Scuro -> Nero -> Grigio Scuro -> Grigio Chiaro
+; Andata: Bianco -> Grigio Chiaro -> Grigio Scuro -> Nero
+; Ritorno: Grigio Scuro -> Grigio Chiaro
 flash_table:
-.byte $01,$01,$01,$0f,$0c,$0b,$00,$00,$00,$0b,$0c,$0f
+.byte $01                       ; Bianco
+.byte $0f                       ; Grigio Chiaro
+.byte $0c                       ; Grigio Scuro
+.byte $00                       ; Nero
+.byte $0c                       ; Ritorno: Grigio Scuro
+.byte $0f                       ; Ritorno: Grigio Chiaro
 FLASH_LEN = * - flash_table
 
 ; Tabelle di puntatori per le righe dello schermo (offset per centrare la scena)
