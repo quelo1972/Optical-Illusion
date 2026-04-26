@@ -14,7 +14,7 @@ L'animazione è generata esclusivamente dal ciclo di colori contenuto nella `fla
 
 ## Caratteristiche Tecniche
 
-- **Linguaggio**: Assembly 6502 (ACME Syntax).
+- **Linguaggio**: Assembly 6502 (64tass Syntax).
 - **Grafica**: Utilizzo della modalità testo con charset personalizzato per la scala e Sprite monocromatici per gli omini.
 - **VIC-II Tricks**:
     - Gestione dei puntatori Sprite nella RAM del Commodore 64.
@@ -28,7 +28,7 @@ L'animazione è generata esclusivamente dal ciclo di colori contenuto nella `fla
 
 ## Requisiti di Sistema
 
-- **Assembler**: ACME
+- **Assembler**: 64tass
 - **Emulatore**: VICE (x64sc consigliato) o hardware reale.
 
 ## Compilazione ed Esecuzione
@@ -36,7 +36,7 @@ L'animazione è generata esclusivamente dal ciclo di colori contenuto nella `fla
 Per compilare il sorgente in un file binario `.prg`:
 
 ```bash
-acme -f cbm -o illusion.prg demo.asm
+64tass -a -o illusion.prg demo.asm
 ```
 
 Per eseguire nell'emulatore VICE:
