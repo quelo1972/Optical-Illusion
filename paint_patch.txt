@@ -1,0 +1,17 @@
+    cmp #$01               ; Blocco pieno (corpo scala)?
+    bne check_vert
+    lda flashColorStair    ; Colore corpo scala
+    sta (ptr+2),y
+    jmp next_stair_col
+check_vert:
+    cmp #$03               ; Linea verticale?
+    beq use_vert
+    cmp #$05               ; Linea verticale chiusura?
+    beq use_vert
+    ; Altrimenti è orizzontale (Char 2, 4, 6)
+    lda flashColorHoriz    ; Colore linea orizzontale
+    sta (ptr+2),y
+    jmp next_stair_col
+use_vert:
+    lda flashColorVert     ; Colore linea verticale
+    sta (ptr+2),y

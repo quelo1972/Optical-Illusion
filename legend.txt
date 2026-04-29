@@ -1,0 +1,4 @@
+frame = frame number
+c_vert = colore linea verticale scalini
+c_oriz = colore linea orizzontale scalini
+col_stair = colore corpo interno scala

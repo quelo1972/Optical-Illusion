@@ -64,9 +64,11 @@ start:
     lda #$0f
     sta currentGray
     lda #$01
-    sta flashColor
-    lda #$0f
-    sta flashColorInv
+    sta flashColorStair
+    lda #$00
+    sta flashColorVert
+    lda #$01
+    sta flashColorHoriz
     lda #$00
     sta phase
 
@@ -87,30 +89,28 @@ main_loop:
     lda #$00
     sta frameDivider
 
-    ; Gestione del ciclo di colori (luminanza)
+    ; Gestione del ciclo di colori a 16 frame (corpo, vert, horiz)
     ldx phase
-    lda flash_table,x       ; Legge il colore corrente dalla tabella
-    sta flashColor
+    
+    ; Legge il colore per il corpo della scala
+    lda flash_table_stair,x
+    sta flashColorStair
+    
+    ; Legge il colore per le linee verticali
+    lda flash_table_vert,x
+    sta flashColorVert
+    
+    ; Legge il colore per le linee orizzontali
+    lda flash_table_horiz,x
+    sta flashColorHoriz
+    
+    ; Incrementa la fase
     inx
     cpx #FLASH_LEN 
     bne store_phase
-    ldx #$00                ; Ricomincia il ciclo
+    ldx #$00                ; Ricomincia il ciclo a 16 frame
 store_phase:
     stx phase
-
-    ; Calcola il colore inverso (speculare) per il profilo/bordo
-    ; Offset di 2 posizioni nel ciclo per creare contrasto
-    txa
-    clc
-    adc #$02
-    cmp #FLASH_LEN
-    bcc no_wrap_inv
-    sbc #FLASH_LEN
-no_wrap_inv:
-    tax
-    lda flash_table,x
-    sta flashColorInv
-    ldx phase               ; Ripristina X per coerenza
 
     ; Aggiorna i colori degli elementi a video
     jsr paint_gray_area
@@ -346,17 +346,22 @@ stair_rows:
 stair_cols:
     lda (ptr),y            ; Legge il carattere a video
     beq next_stair_col     ; Salta se è lo sfondo (Char 0) per non farlo lampeggiare
-    cmp #$01               ; Blocco pieno?
-    bne check_custom
-    lda flashColor         ; Colore scala normale
+    cmp #$01               ; Blocco pieno (corpo scala)?
+    bne check_vert
+    lda flashColorStair    ; Colore corpo scala
     sta (ptr+2),y
     jmp next_stair_col
-check_custom:
-    cmp #$05               ; Il Carattere 5 (chiusura a piombo) resta statico
-    beq next_stair_col     ; per dare solidità al lato destro
-    ; Tutti gli altri caratteri custom (2, 3, 4, 6) ora partecipano
-    ; al flash inverso per creare un profilo continuo e coerente.
-    lda flashColorInv      ; Colore flash inverso
+check_vert:
+    cmp #$03               ; Linea verticale?
+    beq use_vert
+    cmp #$05               ; Linea verticale chiusura?
+    beq use_vert
+    ; Altrimenti è orizzontale (Char 2, 4, 6)
+    lda flashColorHoriz    ; Colore linea orizzontale
+    sta (ptr+2),y
+    jmp next_stair_col
+use_vert:
+    lda flashColorVert     ; Colore linea verticale
     sta (ptr+2),y
 next_stair_col:
     iny
@@ -369,11 +374,11 @@ stair_next_row:
     bne stair_rows
     rts
 
-; Applica lo stesso ciclo di colori a tutti gli sprite attivi
+; Applica il colore della scala agli sprite attivi (per il contrasto)
 set_sprite_colors:
     ldx #$00
 col_loop_dynamic:
-    lda flashColor
+    lda flashColorStair      ; Gli sprite usano il colore del corpo scala
     sta VIC_SPR_COL0,x
     inx
     cpx #$07
@@ -433,22 +438,32 @@ currentGray:
 rightStartTmp:
 .byte $00
 
-flashColor:
+flashColorStair:   ; Colore corpo scala
 .byte $01
 
-flashColorInv:
-.byte $0f
+flashColorVert:    ; Colore linee verticali
+.byte $00
+
+flashColorHoriz:   ; Colore linee orizzontali
+.byte $01
 
 frameDivider: .byte $00
 
-; Tabella dei colori per l'illusione: sequenza di luminanza
-; Ciclo a 4 frame: Bianco → Grigio Chiaro → Grigio Scuro → Nero
-flash_table:
-.byte $01                       ; Bianco - massimo contrasto
-.byte $0f                       ; Grigio Chiaro (Sfondo C64)
-.byte $0b                       ; Grigio Scuro - ponte verso il nero
-.byte $00                       ; Nero - minimo contrasto
-FLASH_LEN = 4
+; Tabelle dei colori a 16 frame (ciclo completo dell'illusione ottica)
+; Estratte dal video analizzato frame-by-frame con pattern reale
+flash_table_vert:  ; Colore linee verticali
+.byte $00, $00, $00, $00, $0f, $00, $0e, $01
+.byte $01, $01, $01, $01, $01, $01, $0f, $0f
+
+flash_table_horiz: ; Colore linee orizzontali
+.byte $01, $01, $01, $01, $0e, $00, $00, $00
+.byte $00, $0e, $0e, $0f, $01, $01, $01, $01
+
+flash_table_stair: ; Colore corpo scala
+.byte $01, $01, $01, $0f, $0e, $00, $00, $00
+.byte $00, $0e, $0f, $0f, $01, $01, $01, $01
+
+FLASH_LEN = 16
 
 ; Tabelle di puntatori per le righe dello schermo (offset per centrare la scena)
 screen_row_lo:
